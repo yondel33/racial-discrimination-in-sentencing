@@ -1,0 +1,127 @@
+---
+author: "Steven Jaindl"
+date: "12/4/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+```
+
+# 1. Is Compas Fair?
+
+## 1. Load Data 
+
+```{r}
+compas <- read.delim("C://Users/stevj/Downloads/compas-score-data.csv.bz2")
+dim(compas)
+```
+
+## 2. Filter Data
+
+```{r}
+compas <- compas %>% 
+  filter(race == "African-American" | race == "Caucasian")
+```
+
+## 3. low_or_high
+
+```{r}
+compas$low_or_high <- cut(compas$decile_score,
+    breaks = c(0, 4.5, 10),
+    labels = c("low", "high"))
+```
+
+## 4. Recidivism Rates
+
+```{r}
+mean(compas$two_year_recid[compas$race == "African-American"])
+mean(compas$two_year_recid[compas$race == "Caucasian"])
+mean(compas$two_year_recid[compas$low_or_high == "low"])
+mean(compas$two_year_recid[compas$low_or_high == "high"])
+```
+
+## 5. Confusion Matrix
+
+```{r}
+compas <- compas %>%
+      mutate(binary_predicted = ifelse(low_or_high == "low", 0, 1))
+
+table(compas$binary_predicted, compas$two_year_recid)
+```
+
+16.69% of criminals were incorrectly classified as high-risk. 17.49% of criminals were classified as low-risk, but committed crimes within two years of release. 65.82% were correctly classified by COMPAS's prediction algorithm.
+
+## 6. The accuracy was 65.82%. Errors were distributed almost equally--i.e., the model spat out a simliar number of false positives and false negatives. To answer whether to employ this algorithm or to risk human error in determining sentences, I must consider how often humans err, or more specifically, how often judges err. I would estimate they are about 70% or 80% accurate, although this may depend upon context. Since 65% accuracy is not that accurate, I would advise against employing COMPAS's algorithm.
+
+## 7. Confusion Matrix by Race
+
+```{r}
+african_american <- compas %>% 
+  filter(race == "African-American")
+table(african_american$binary_predicted, african_american$two_year_recid)
+```
+
+```{r}
+caucasian <- compas %>% 
+  filter(race == "Caucasian")
+table(caucasian$binary_predicted, caucasian$two_year_recid)
+```
+
+### a. accuracy for african-americans = (1188 + 873) / 3175 = 64.91%
+### accuracy for caucasians = (999 + 414) / 2103 = 67.19%
+
+### b. false positive rates for african-americans = 473 / (473 + 873) = 35.14%
+### false positive rates for caucasians = 408 / (408 + 999) = 29.00%
+
+### c. false negative rates for african-americans = 641 / (641 + 1188) = 35.05%
+### false negative rates for caucasians = 282 / (282 + 414) = 40.52%
+
+## 8. Were this model applied, it would facilitate shorter sentences and parole restrictions for caucasian in comparison to blacks. The lack of group fairness quickly becomes a lack of individual fairness since an individual's belonging to a group alters negatively the consequences the "justice" system doles out. In other words, systemic racism distorts notions of individual fairness. 
+
+# 2. Make your own COMPAS!
+
+## 1. score_text and decile_score are results from COMPAS's model. two_year_recid is an output to compare to, not a potential independent variable.
+
+## 2. False negatives are the most dangerous to society. In the model, false negatives represent criminals not picked to commit further crimes, but end up doing so. As such, recall is the most important model performance measure.
+
+## 3. Model without race and sex
+
+```{r}
+sample_compas <- sample(nrow(compas), 0.8 * nrow(compas))
+compas_train <- compas[sample_compas,]
+compas_valid <- compas[-sample_compas,]
+```
+
+```{r}
+m <- glm(two_year_recid ~ age + c_charge_degree + priors_count, data = compas_train, family = "binomial")
+predicted <- predict(m, newdata = compas_valid, type = "response") > 0.5
+table(predicted, compas_valid$two_year_recid)
+```
+
+Accuracy = (397 + 321) / 1056 = 68.00%. Slightly better than the COMPAS model.
+
+## 4. Adding sex
+
+```{r}
+m <- glm(two_year_recid ~ sex + age + c_charge_degree + priors_count, data = compas_train, family = "binomial")
+predicted <- predict(m, newdata = compas_valid, type = "response") > 0.5
+table(predicted, compas_valid$two_year_recid)
+```
+
+Inputing sex as a variable seems to not change the model at all. 
+
+## 5. Adding race
+
+```{r}
+m <- glm(two_year_recid ~ race + sex + age + c_charge_degree + priors_count, data = compas_train, family = "binomial")
+predicted <- predict(m, newdata = compas_valid, type = "response") > 0.5
+table(predicted, compas_valid$two_year_recid)
+```
+
+Accuracy = (412 + 324) / 1056 = 69.70%. Not a huge improvement, but a noticeable step-up.
+
+## 6. This model seems to perform better than COMPAS. Moreover, adding race to this model improves its accuracy, unlike adding race to COMPAS. I'm not quite sure why this is? Does COMPAS just perform that poorly with regard to race. I wonder if a separate algorithm for Caucasian and African-American (and maybe other races) might improve COMPAS's predictions. Ideally, judges would have some statistical knowledge to inform their decisions. In other words, they should learn how the model works, what it weighs more heavily or lightly. Moreover, judges should not just sentence blindly based on an algorithm. A well-designed model can supplement good judgment, but it rarely replaces it. 
